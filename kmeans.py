@@ -55,8 +55,8 @@ DATA_DIR = os.path.join(os.getcwd(), "data")
 logger = logging.getLogger(__name__)
 
 MAX_ITERATIONS = 50
-K_CONST = range(2, 5, 1)
-RUNS = 5
+K_CONST = range(2, 201, 1)
+RUNS = 100
 
 
 def validate(d):
