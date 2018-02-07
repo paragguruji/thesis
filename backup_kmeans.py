@@ -36,12 +36,11 @@ from random import sample
 import os
 import json
 import re
-import warnings
+import logging
 import numpy as np
 import pandas as pd
 
 
-import logging
 
 
 # =============================================================================
@@ -58,28 +57,7 @@ __version__ = '0.1'
 # CLASSES / METHODS
 # =============================================================================
 DATA_DIR = os.path.join(os.getcwd(), "data")
-
-logger = logging.getLogger(__name__)
-formatter = logging.Formatter('%(asctime)s:%(levelname)s: %(message)s')
-logger.setLevel(logging.DEBUG)
-
-stream_handler = logging.StreamHandler()
-stream_handler.setLevel(logging.INFO)
-stream_handler.setFormatter(formatter)
-
-logFilePath = os.path.join(os.getcwd(), "log", "thesis_kmeans.log")
-file_handler = logging.FileHandler(filename =logFilePath)
-file_handler.setFormatter(formatter)
-file_handler.setLevel(logging.DEBUG)
-
-logger.addHandler(file_handler)
-logger.addHandler(stream_handler)
-
-
-
 MAX_ITERATIONS = 50;
-K_CONST = range(2,151,1)
-RUNS = 100
 
 def validate(d):
     if len(d['text']) < 280:
@@ -116,6 +94,10 @@ def load_data():
                                            'wallstreetjournal',
                                            'washingtonpost']))
     return pd.DataFrame.from_records(_list)
+    # load_source('cnn') + load_source('foxnews')
+    # return pd.DataFrame({'text':[preprocess_article(d['text']) for d in _list]})
+
+#lambda x: " ".join(re.findall(r'\w+', x))
 
 t0 = time()
 vectorizer = TfidfVectorizer(
@@ -127,8 +109,6 @@ vectorizer = TfidfVectorizer(
                 use_idf=True,
                 analyzer='word',
                 ngram_range=(2, 3))
-D = vectorizer.fit_transform(load_data().text)
-logger.info("data loaded in %06.3fs\n" % (time() - t0))
 
 km = MiniBatchKMeans(init='k-means++',
                      n_clusters=4,
@@ -136,6 +116,19 @@ km = MiniBatchKMeans(init='k-means++',
                      n_init=10,
                      max_no_improvement=10,
                      verbose=0)
+
+
+D = vectorizer.fit_transform(load_data().text)
+
+#X = vectorizer.fit_transform(load_data().text)
+
+
+K_CONST = range(2,151,1)
+
+print("done in %fs" % (time() - t0))
+print()
+
+
 
 
 def wc(D, M, C):
@@ -157,83 +150,66 @@ def _kmeans(D, K):
     return C, L
 
 
-def experiment(_dir=None, K=K_CONST, run_timestamp=''):
-    if not run_timestamp:
-        run_timestamp = \
-            datetime.fromtimestamp(time()).strftime("%Y_%m_%d_%H_%M_%S")
+def analysis(_dir=None, algo='sklearn', K=K_CONST):
     if not _dir:
-        _dir = os.path.join('output', run_timestamp)
+        _dir = os.path.join('output', 'analysis')
     if not os.path.isdir(_dir):
         os.makedirs(_dir)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        for k in range(len(K)):
-            km.n_clusters = K[k]
-            wcssds = []
-            t00 = time()
-            with open(os.path.join(_dir, 'K' + str(K[k]) + '.txt'), "w") as kf:
-                kf.write(str(K[k]) + "\n")
-                for run in range(RUNS):
-                    t0 = time()
-                    km.fit(D)
-                    wcssd = wc(D.toarray(),
-                               km.labels_,
-                               km.cluster_centers_)
-                    wcssds.append(wcssd)
-                    t1 = time()
-                    logger.debug(("K: %03d  Run: %03d  WCSSD: %015.8f  " +
-                                 "Time: %06.3fs") %
-                                 (K[k], run, wcssd, (t1 - t0)))
-                    kf.write("%s " % wcssd)
-            t11 = time()
-            logger.info(("K: %03d  Runs: %03d  Mean-WCSSD: %015.8f  "
-                         + "Median-WCSSD: %015.8f  Time: %06.3fs") %
-                        (K[k],
-                         RUNS,
-                         np.mean(np.array(wcssds)),
-                         np.median(np.array(wcssds)),
-                         (t11 - t00)))
-    return _dir, K, run_timestamp
-
-
-def analysis(_dir=None, K=K_CONST, run_timestamp=''):
     result = np.array([0.0]*(len(K)*3)).reshape(len(K), 3)
-    if not _dir:
-        _dir = os.path.join('output', run_timestamp)
-    for k in range(len(K)):
-        with open(os.path.join(_dir, 'K' + str(K[k]) + '.txt'), "r") as kfile:
-            k_f = int(kfile.next())
-            if K[k] == k_f:
-                wcssds = map(float, kfile.next().split())
-                result[k][0] = K[k]
-                result[k][1] = np.mean(wcssds)
-                result[k][2] = np.median(wcssds)
+    for run in range(100):
+        for k in range(len(K)):
+            result[k][0] = K[k]
+#            1. sklearn k-means:
+            if algo == 'sklearn':
+                km.n_clusters = K[k]
+                print("Clustering sparse data with %s" % km)
+                t0 = time()
+                km.fit(D)
+#                print("done in %0.3fs" % (time() - t0))
+#                print()
+                result[k][1] += wc(D.toarray(),
+                                   km.labels_,
+                                   km.cluster_centers_)
+                result[k][2] += metrics.silhouette_score(D,
+                                                         km.labels_,
+                                                         sample_size=1000)
+#            2. My k-means:
             else:
-                logger.fatal("Error: expected K: %s, found %s" % (K[k], k_f))
-                break
-    df = pd.DataFrame(result, columns=['K', 'Mean WC-SSD', 'Med WC-SSD'])
-    df.to_csv(os.path.join(_dir, 'results.csv'), index=False)
-    return _dir, df, run_timestamp
+                print("Clustering data with Parag's K Means: K=%s" % K[k])
+                t0 = time()
+                C, M = _kmeans(D.toarray(), K[k])
+                print("done in %0.3fs" % (time() - t0))
+                print()
+                result[k][1] = wc(D.toarray(), M, C)
+                result[k][2] = metrics.silhouette_score(D, M, sample_size=100)
+
+    result[:, [1, 2]] /= 100.0
+
+    df = pd.DataFrame(result, columns=['K', 'WC-SSD', 'SC'])
+    run_timestamp = datetime.fromtimestamp(time()).strftime("%Y%m%d%H%M%S")
+    df.to_csv(os.path.join(_dir, 'Run' + run_timestamp + '.csv'), index=False)
+    plot_b1(_dir, df, run_timestamp)
+    return df
 
 
-def plot(_dir=None, df=None, run_timestamp=''):
+def plot_b1(_dir=None, df=None, timestamp=''):
     if not _dir:
-        _dir = os.path.join('output', run_timestamp)
+        _dir = os.path.join('output', 'analysis')
     if df is None:
-        df = pd.read_csv(os.path.join(_dir, 'results.csv'))
+        df = pd.read_csv(os.path.join(_dir, 'Run' + timestamp + '.csv'))
     p1 = df.plot(x=df.columns.values[0],
                  y=df.columns.values[1],
-                 title="Mean WC-SSD for %s Runs Vs. K" % RUNS)
+                 title="Analysis : Variation in WC-SSD with K")
     p1.set_xticks(df[df.columns.values[0]], minor=True)
     p1.grid(which='both', linestyle='dotted', alpha=0.5)
-    p1.get_figure().savefig(os.path.join(_dir, 'Mean WC-SSD.png'))
+    p1.get_figure().savefig(os.path.join(_dir, 'WC-SSD' + timestamp + '.png'))
 
     p2 = df.plot(x=df.columns.values[0],
                  y=df.columns.values[2],
-                 title="Median WC-SSD for %s Runs Vs. K" % RUNS)
+                 title="Analysis B.1: Variation in SC with K")
     p2.set_xticks(df[df.columns.values[0]], minor=True)
     p2.grid(which='both', linestyle='dotted', alpha=0.5)
-    p2.get_figure().savefig(os.path.join(_dir, 'Median WC-SSD.png'))
+    p2.get_figure().savefig(os.path.join(_dir, 'SC' + timestamp + '.png'))
 
 #
 #order_centroids = km.cluster_centers_.argsort()[:, ::-1]
@@ -255,13 +231,8 @@ def plot(_dir=None, df=None, run_timestamp=''):
 
 def main():
     """Description of main()"""
-    global logFilePath
-    timestamp = datetime.fromtimestamp(time()).strftime("%Y_%m_%d_%H_%M_%S")
-    logFilePath = os.path.join(os.getcwd(),
-                               "log",
-                               "thesis_kmeans_" + timestamp + ".log")
-    logger.info("Logging for experiment started at %s" % timestamp)
-    plot(*analysis(*experiment(run_timestamp=timestamp)))
+    #analysis()
+    plot_b1()
 
 if __name__ == '__main__':
     main()
