@@ -21,28 +21,21 @@ description
 
 from __future__ import print_function
 
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.feature_extraction.text import TfidfTransformer
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import Normalizer
-from sklearn import metrics
-
-from sklearn.cluster import KMeans, MiniBatchKMeans
-
 from time import time
 from datetime import datetime
 from random import sample
 
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.cluster import MiniBatchKMeans
+
 import os
+import warnings
+import logging
 import json
 import re
-import warnings
+
 import numpy as np
 import pandas as pd
-
-
-import logging
-
 
 # =============================================================================
 # PROGRAM METADATA
@@ -60,26 +53,11 @@ __version__ = '0.1'
 DATA_DIR = os.path.join(os.getcwd(), "data")
 
 logger = logging.getLogger(__name__)
-formatter = logging.Formatter('%(asctime)s:%(levelname)s: %(message)s')
-logger.setLevel(logging.DEBUG)
 
-stream_handler = logging.StreamHandler()
-stream_handler.setLevel(logging.INFO)
-stream_handler.setFormatter(formatter)
+MAX_ITERATIONS = 50
+K_CONST = range(2, 5, 1)
+RUNS = 5
 
-logFilePath = os.path.join(os.getcwd(), "log", "thesis_kmeans.log")
-file_handler = logging.FileHandler(filename =logFilePath)
-file_handler.setFormatter(formatter)
-file_handler.setLevel(logging.DEBUG)
-
-logger.addHandler(file_handler)
-logger.addHandler(stream_handler)
-
-
-
-MAX_ITERATIONS = 50;
-K_CONST = range(2,151,1)
-RUNS = 100
 
 def validate(d):
     if len(d['text']) < 280:
@@ -88,7 +66,8 @@ def validate(d):
 
 
 def preprocess(text):
-    return ' '.join(map(lambda x: x.lower(), re.split(r'[^a-zA-Z]+', text))) # r'\W+'
+    return ' '.join(map(lambda x: x.lower(),
+                        re.split(r'[^a-zA-Z]+', text)))  # r'\W+'
 
 
 def load_source_dicts(source):
@@ -117,6 +96,7 @@ def load_data():
                                            'washingtonpost']))
     return pd.DataFrame.from_records(_list)
 
+
 t0 = time()
 vectorizer = TfidfVectorizer(
                 max_df=0.1,
@@ -141,6 +121,7 @@ km = MiniBatchKMeans(init='k-means++',
 def wc(D, M, C):
     return sum([((D[M == i] - C[i])**2).sum(axis=1).sum(axis=0)
                 for i in set(M)])
+
 
 def _kmeans(D, K):
     C = np.array(sample(D, K))
@@ -235,18 +216,6 @@ def plot(_dir=None, df=None, run_timestamp=''):
     p2.grid(which='both', linestyle='dotted', alpha=0.5)
     p2.get_figure().savefig(os.path.join(_dir, 'Median WC-SSD.png'))
 
-#
-#order_centroids = km.cluster_centers_.argsort()[:, ::-1]
-#
-#terms = vectorizer.get_feature_names()
-#for i in range(3):
-#    print("Cluster %d:" % i, end='')
-#    for ind in order_centroids[i, :10]:
-#        print(' %s' % terms[ind], end='')
-#    print()
-#
-
-
 
 # =============================================================================
 # MAIN METHOD AND TESTING AREA
@@ -255,14 +224,30 @@ def plot(_dir=None, df=None, run_timestamp=''):
 
 def main():
     """Description of main()"""
-    global logFilePath
     timestamp = datetime.fromtimestamp(time()).strftime("%Y_%m_%d_%H_%M_%S")
+
+    formatter = logging.Formatter('%(asctime)s:%(levelname)s: %(message)s')
+
+    logger.setLevel(logging.DEBUG)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(logging.INFO)
+    stream_handler.setFormatter(formatter)
+
     logFilePath = os.path.join(os.getcwd(),
                                "log",
                                "thesis_kmeans_" + timestamp + ".log")
+    file_handler = logging.FileHandler(filename=logFilePath)
+    file_handler.setFormatter(formatter)
+    file_handler.setLevel(logging.DEBUG)
+
+    logger.addHandler(file_handler)
+    logger.addHandler(stream_handler)
+
     logger.info("Logging for experiment started at %s" % timestamp)
+
     plot(*analysis(*experiment(run_timestamp=timestamp)))
+
 
 if __name__ == '__main__':
     main()
-
