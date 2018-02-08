@@ -79,7 +79,7 @@ DATA_DIR = os.path.join(os.getcwd(), "data")
 logger = logging.getLogger(__name__)
 
 MAX_ITERATIONS = 100
-K_CONST = range(2, 200, 1)
+K_CONST = range(2, 201, 1)
 RUNS = 200
 
 
