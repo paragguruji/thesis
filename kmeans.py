@@ -54,9 +54,9 @@ DATA_DIR = os.path.join(os.getcwd(), "data")
 
 logger = logging.getLogger(__name__)
 
-MAX_ITERATIONS = 50
+MAX_ITERATIONS = 100
 K_CONST = range(2, 201, 1)
-RUNS = 100
+RUNS = 200
 
 
 def validate(d):
@@ -168,11 +168,11 @@ def experiment(_dir=None, K=K_CONST, run_timestamp=''):
                     kf.write("%s " % wcssd)
             t11 = time()
             logger.info(("K: %03d  Runs: %03d  Mean-WCSSD: %015.8f  "
-                         + "Median-WCSSD: %015.8f  Time: %06.3fs") %
+                         + "Std. Dev.: %015.8f  Time: %06.3fs") %
                         (K[k],
                          RUNS,
                          np.mean(np.array(wcssds)),
-                         np.median(np.array(wcssds)),
+                         np.std(np.array(wcssds)),
                          (t11 - t00)))
     return _dir, K, run_timestamp
 
@@ -188,11 +188,11 @@ def analysis(_dir=None, K=K_CONST, run_timestamp=''):
                 wcssds = map(float, kfile.next().split())
                 result[k][0] = K[k]
                 result[k][1] = np.mean(wcssds)
-                result[k][2] = np.median(wcssds)
+                result[k][2] = np.std(wcssds)
             else:
                 logger.fatal("Error: expected K: %s, found %s" % (K[k], k_f))
                 break
-    df = pd.DataFrame(result, columns=['K', 'Mean WC-SSD', 'Med WC-SSD'])
+    df = pd.DataFrame(result, columns=['K', 'Mean-WC-SSD', 'STD WC-SSD'])
     df.to_csv(os.path.join(_dir, 'results.csv'), index=False)
     return _dir, df, run_timestamp
 
@@ -204,17 +204,11 @@ def plot(_dir=None, df=None, run_timestamp=''):
         df = pd.read_csv(os.path.join(_dir, 'results.csv'))
     p1 = df.plot(x=df.columns.values[0],
                  y=df.columns.values[1],
+                 yerr=df.columns.values[2],
                  title="Mean WC-SSD for %s Runs Vs. K" % RUNS)
     p1.set_xticks(df[df.columns.values[0]], minor=True)
     p1.grid(which='both', linestyle='dotted', alpha=0.5)
-    p1.get_figure().savefig(os.path.join(_dir, 'Mean WC-SSD.png'))
-
-    p2 = df.plot(x=df.columns.values[0],
-                 y=df.columns.values[2],
-                 title="Median WC-SSD for %s Runs Vs. K" % RUNS)
-    p2.set_xticks(df[df.columns.values[0]], minor=True)
-    p2.grid(which='both', linestyle='dotted', alpha=0.5)
-    p2.get_figure().savefig(os.path.join(_dir, 'Median WC-SSD.png'))
+    p1.get_figure().savefig(os.path.join(_dir, 'Mean-WC-SSD.png'))
 
 
 # =============================================================================
