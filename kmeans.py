@@ -80,7 +80,7 @@ logger = logging.getLogger(__name__)
 
 MAX_ITERATIONS = 100
 K_CONST = range(2, 201, 1)
-RUNS = 200
+RUNS = 100
 
 
 def validate(d):
