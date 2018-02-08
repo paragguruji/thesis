@@ -12,6 +12,8 @@ The data is read in JSON format matching o/p format of data.scraping module.
     :./config.json: [optional] default configuration used if absent
 
 :TODO:
+    complete the docstrings
+    analysis of word-counts in articles vs lengths of the articles
     k-means model with googlenews pretrained doc2vec vectors
 
 :AUTHOR: Parag Guruji
@@ -68,8 +70,16 @@ logger = logging.getLogger(__name__)
 
 def validate(d):
     """Returns True if a data dict is valid for analysis.
-        Presently, validity is defined as the word-count of news text >= 280
+    Validity is defined as the length of news text >= 280
+
+
+
+    :param d: (*dict*) dict containing the news article data
+    :returns: **True** if length(d.text) >= 280, **False** otherwise
+
+
     """
+
     if len(d['text']) < 280:
         return False
     return True
@@ -77,17 +87,33 @@ def validate(d):
 
 def preprocess(text):
     """Preprocesses given text and returns preprocessed text
-        Currently, strips everything but alphabets and converts to lowercase
+    Strips everything but alphabets and converts to lowercase
+
+
+
+    :param text: (*string*) text to preprocess
+    :paaram returns: (*string*) preprocessed text
+
+
     """
+
     return ' '.join(map(lambda x: x.lower(),
                         re.split(r'[^a-zA-Z]+', text)))  # r'\W+'
 
 
 def load_source_dicts(source):
     """Loads & preprocesses JSON data from directory of given news-source.
-        Gives a list of JSON objects such that,
-            Each object <=> a unique, validated, & preprocessed news article.
+    Gives a list of JSON objects where each object corresponds to a unique,
+    validated, & preprocessed news article.
+
+
+
+    :param source: (*string*) subdirectory under thesis/data for a news-source
+    :returns: (*list*) list of dicts for validated, preprocessed news articles.
+
+
     """
+
     _dicts = [json.load(open(os.path.join(DATA_DIR, source, f)))
               for f in os.listdir(os.path.join(DATA_DIR, source))
               if f.endswith('.dict')]
@@ -101,6 +127,17 @@ def load_source_dicts(source):
 
 
 def load_data(sources):
+    """Loads data from sources through load_source_dicts and translates it to
+    a pandas DataFrame
+
+
+
+    :param sources: (*list*) list of news sources that are names of subdirectories under DATA_DIR
+    :returns: (*pandas.DataFrame*) Dataframe - rows for articles, columns for attributes like text, title, publish_date, author
+
+
+    """
+
     t0 = time()
     _list = reduce(lambda x, y: x + y,
                    map(load_source_dicts, sources))
@@ -109,11 +146,39 @@ def load_data(sources):
 
 
 def wc(D, M, C):
+    """
+
+
+
+    :param D: 
+
+    :param M: 
+
+    :param C: 
+
+
+
+    """
+
     return sum([((D[M == i] - C[i])**2).sum(axis=1).sum(axis=0)
                 for i in set(M)])
 
 
 def _kmeans(D, K, max_iterations):
+    """
+
+
+
+    :param D: 
+
+    :param K: 
+
+    :param max_iterations: 
+
+
+
+    """
+
     C = np.array(sample(D, K))
     L_old = np.array([-1]*len(D))
     for _ in range(max_iterations):
@@ -129,6 +194,26 @@ def _kmeans(D, K, max_iterations):
 
 
 def experiment(X, K, max_iterations, run_count, run_timestamp='', _dir=None):
+    """
+
+
+
+    :param X: 
+
+    :param K: 
+
+    :param max_iterations: 
+
+    :param run_count: 
+
+    :param run_timestamp:  (Default value = '')
+
+    :param _dir:  (Default value = None)
+
+
+
+    """
+
     if not run_timestamp:
         run_timestamp = \
             datetime.fromtimestamp(time()).strftime("%Y_%m_%d_%H_%M_%S")
@@ -174,6 +259,20 @@ def experiment(X, K, max_iterations, run_count, run_timestamp='', _dir=None):
 
 
 def analysis(K, run_timestamp='', _dir=None):
+    """
+
+
+
+    :param K: 
+
+    :param run_timestamp:  (Default value = '')
+
+    :param _dir:  (Default value = None)
+
+
+
+    """
+
     result = np.array([0.0]*(len(K)*3)).reshape(len(K), 3)
     if not _dir:
         _dir = os.path.join('results', run_timestamp)
@@ -199,6 +298,22 @@ def analysis(K, run_timestamp='', _dir=None):
 
 
 def plot(df=None, run_timestamp='', run_count=0, _dir=None):
+    """
+
+
+
+    :param df:  (Default value = None)
+
+    :param run_timestamp:  (Default value = '')
+
+    :param run_count:  (Default value = 0)
+
+    :param _dir:  (Default value = None)
+
+
+
+    """
+
     if not _dir:
         _dir = os.path.join('results', run_timestamp)
     if df is None:
@@ -213,6 +328,16 @@ def plot(df=None, run_timestamp='', run_count=0, _dir=None):
 
 
 def build_setup(config=None):
+    """
+
+
+
+    :param config:  (Default value = None)
+
+
+
+    """
+
     setup = {}
     if config is None:
         try:
@@ -280,7 +405,16 @@ def build_setup(config=None):
 
 
 def main(config=None):
-    """Description of main()"""
+    """Description of main()
+
+
+
+    :param config:  (Default value = None)
+
+
+
+    """
+
     setup = build_setup()
     t0 = time()
     experiment(setup['X'],
@@ -295,6 +429,16 @@ def main(config=None):
 
 
 def multiprocess_main(config=None):
+    """
+
+
+
+    :param config:  (Default value = None)
+
+
+
+    """
+
     setup = build_setup()
     pool = mp.Pool(mp.cpu_count())
     logger.setLevel(logging.ERROR)
