@@ -28,6 +28,30 @@ from random import sample
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.cluster import MiniBatchKMeans
 
+
+##############################################################################
+import matplotlib
+matplotlib.use('agg')
+
+from pandas.plotting._misc import (scatter_matrix, radviz,
+                                   andrews_curves, bootstrap_plot,
+                                   parallel_coordinates, lag_plot,
+                                   autocorrelation_plot)
+from pandas.plotting._core import boxplot
+from pandas.plotting._style import plot_params
+from pandas.plotting._tools import table
+
+from pandas.plotting._converter import \
+    register as register_matplotlib_converters
+from pandas.plotting._converter import \
+    deregister as deregister_matplotlib_converters
+##############################################################################
+
+
+
+
+
+
 import os
 import warnings
 import logging
@@ -54,9 +78,9 @@ DATA_DIR = os.path.join(os.getcwd(), "data")
 
 logger = logging.getLogger(__name__)
 
-MAX_ITERATIONS = 50
-K_CONST = range(2, 5, 1)
-RUNS = 5
+MAX_ITERATIONS = 100
+K_CONST = range(2, 200, 1)
+RUNS = 200
 
 
 def validate(d):
