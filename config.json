@@ -1,0 +1,1 @@
+{"K": [2, 201, 1], "analyzer": "word", "sources": ["cnn", "foxnews", "nytimes", "nypost", "bostonglobe", "chicagotribune", "latimes", "wallstreetjournal", "washingtonpost"], "ngram_range": [1, 2, 3], "max_df": 0.1, "min_df": 1, "max_features": 2000, "max_iterations": 100, "stop_words": "english", "run_count": 100, "use_idf": true, "k_range": [2, 201, 1]}

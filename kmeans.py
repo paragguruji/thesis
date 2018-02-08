@@ -47,17 +47,14 @@ from pandas.plotting._converter import \
     deregister as deregister_matplotlib_converters
 ##############################################################################
 
-
-
-
-
-
+import sys
 import os
 import warnings
 import logging
 import json
 import re
 
+import multiprocessing as mp
 import numpy as np
 import pandas as pd
 
@@ -75,12 +72,7 @@ __version__ = '0.1'
 # CLASSES / METHODS
 # =============================================================================
 DATA_DIR = os.path.join(os.getcwd(), "data")
-
 logger = logging.getLogger(__name__)
-
-MAX_ITERATIONS = 100
-K_CONST = range(2, 201, 1)
-RUNS = 100
 
 
 def validate(d):
@@ -107,39 +99,12 @@ def load_source_dicts(source):
     return valid_dicts
 
 
-def load_data():
+def load_data(sources):
+    t0 = time()
     _list = reduce(lambda x, y: x + y,
-                   map(load_source_dicts, ['cnn',
-                                           'foxnews',
-                                           'nytimes',
-                                           'nypost',
-                                           'bostonglobe',
-                                           'chicagotribune',
-                                           'latimes',
-                                           'wallstreetjournal',
-                                           'washingtonpost']))
+                   map(load_source_dicts, sources))
+    logger.info("data loaded in %06.3fs\n" % (time() - t0))
     return pd.DataFrame.from_records(_list)
-
-
-t0 = time()
-vectorizer = TfidfVectorizer(
-                max_df=0.1,
-                max_features=1200,
-                min_df=1,
-                stop_words='english',
-                preprocessor=preprocess,
-                use_idf=True,
-                analyzer='word',
-                ngram_range=(2, 3))
-D = vectorizer.fit_transform(load_data().text)
-logger.info("data loaded in %06.3fs\n" % (time() - t0))
-
-km = MiniBatchKMeans(init='k-means++',
-                     n_clusters=4,
-                     batch_size=100,
-                     n_init=10,
-                     max_no_improvement=10,
-                     verbose=0)
 
 
 def wc(D, M, C):
@@ -147,10 +112,10 @@ def wc(D, M, C):
                 for i in set(M)])
 
 
-def _kmeans(D, K):
+def _kmeans(D, K, max_iterations):
     C = np.array(sample(D, K))
     L_old = np.array([-1]*len(D))
-    for _ in range(MAX_ITERATIONS):
+    for _ in range(max_iterations):
         L = np.argmin(np.sqrt(((D - C[:, np.newaxis])**2).sum(axis=2)), axis=0)
         if all(L_old == L):
             break
@@ -162,7 +127,7 @@ def _kmeans(D, K):
     return C, L
 
 
-def experiment(_dir=None, K=K_CONST, run_timestamp=''):
+def experiment(X, K, max_iterations, run_count, run_timestamp='', _dir=None):
     if not run_timestamp:
         run_timestamp = \
             datetime.fromtimestamp(time()).strftime("%Y_%m_%d_%H_%M_%S")
@@ -170,6 +135,12 @@ def experiment(_dir=None, K=K_CONST, run_timestamp=''):
         _dir = os.path.join('output', run_timestamp)
     if not os.path.isdir(_dir):
         os.makedirs(_dir)
+    km = MiniBatchKMeans(init='k-means++',
+                         max_iter=max_iterations,
+                         batch_size=100,
+                         n_init=10,
+                         max_no_improvement=10,
+                         verbose=0)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         for k in range(len(K)):
@@ -178,10 +149,10 @@ def experiment(_dir=None, K=K_CONST, run_timestamp=''):
             t00 = time()
             with open(os.path.join(_dir, 'K' + str(K[k]) + '.txt'), "w") as kf:
                 kf.write(str(K[k]) + "\n")
-                for run in range(RUNS):
+                for run in range(run_count):
                     t0 = time()
-                    km.fit(D)
-                    wcssd = wc(D.toarray(),
+                    km.fit(X)
+                    wcssd = wc(X.toarray(),
                                km.labels_,
                                km.cluster_centers_)
                     wcssds.append(wcssd)
@@ -191,37 +162,42 @@ def experiment(_dir=None, K=K_CONST, run_timestamp=''):
                                  (K[k], run, wcssd, (t1 - t0)))
                     kf.write("%s " % wcssd)
             t11 = time()
-            logger.info(("K: %03d  Runs: %03d  Mean-WCSSD: %015.8f  "
-                         + "Std. Dev.: %015.8f  Time: %06.3fs") %
+            logger.info(("K: %03d  Runs: %03d  Mean-WCSSD: %015.8f  " +
+                         "Std. Dev.: %015.8f  Time: %06.3fs") %
                         (K[k],
-                         RUNS,
+                         run_count,
                          np.mean(np.array(wcssds)),
                          np.std(np.array(wcssds)),
                          (t11 - t00)))
-    return _dir, K, run_timestamp
+    return K, run_timestamp, _dir
 
 
-def analysis(_dir=None, K=K_CONST, run_timestamp=''):
+def analysis(K, run_timestamp='', _dir=None):
     result = np.array([0.0]*(len(K)*3)).reshape(len(K), 3)
     if not _dir:
         _dir = os.path.join('output', run_timestamp)
+    wcssds = []
     for k in range(len(K)):
-        with open(os.path.join(_dir, 'K' + str(K[k]) + '.txt'), "r") as kfile:
-            k_f = int(kfile.next())
-            if K[k] == k_f:
-                wcssds = map(float, kfile.next().split())
-                result[k][0] = K[k]
-                result[k][1] = np.mean(wcssds)
-                result[k][2] = np.std(wcssds)
-            else:
-                logger.fatal("Error: expected K: %s, found %s" % (K[k], k_f))
-                break
-    df = pd.DataFrame(result, columns=['K', 'Mean-WC-SSD', 'STD WC-SSD'])
+        try:
+            with open(os.path.join(_dir, 'K' + str(K[k]) + '.txt'), "r") as kf:
+                k_f = int(kf.next())
+                if K[k] == k_f:
+                    wcssds = map(float, kf.next().split())
+                    result[k][0] = K[k]
+                    result[k][1] = np.mean(wcssds)
+                    result[k][2] = np.std(wcssds)
+                else:
+                    logger.fatal("Expected K: %s, found %s" % (K[k], k_f))
+                    break
+        except IOError:
+            logger.error("IOError in results for K=%s" % K[k], exc_info=True)
+    run_count = len(wcssds)
+    df = pd.DataFrame(result, columns=['K', 'Mean-WC-SSD', 'STD-WC-SSD'])
     df.to_csv(os.path.join(_dir, 'results.csv'), index=False)
-    return _dir, df, run_timestamp
+    return df, run_timestamp, run_count, _dir
 
 
-def plot(_dir=None, df=None, run_timestamp=''):
+def plot(df=None, run_timestamp='', run_count=0, _dir=None):
     if not _dir:
         _dir = os.path.join('output', run_timestamp)
     if df is None:
@@ -229,10 +205,67 @@ def plot(_dir=None, df=None, run_timestamp=''):
     p1 = df.plot(x=df.columns.values[0],
                  y=df.columns.values[1],
                  yerr=df.columns.values[2],
-                 title="Mean WC-SSD for %s Runs Vs. K" % RUNS)
+                 title="Mean WC-SSD for %s Runs Vs. K" % run_count)
     p1.set_xticks(df[df.columns.values[0]], minor=True)
     p1.grid(which='both', linestyle='dotted', alpha=0.5)
     p1.get_figure().savefig(os.path.join(_dir, 'Mean-WC-SSD.png'))
+
+
+def build_setup(config=None):
+    setup = {}
+    if config is None:
+        try:
+            config = json.load(open('config.json'))
+        except Exception:
+            config = {}
+            logger.error("config failed, using defaults", exc_info=True)
+
+    df = load_data(config.get('sources',
+                              ['cnn',
+                               'foxnews',
+                               'nytimes',
+                               'nypost',
+                               'bostonglobe',
+                               'chicagotribune',
+                               'latimes',
+                               'wallstreetjournal',
+                               'washingtonpost']))
+
+    vectorizer = TfidfVectorizer(max_df=config.get('max_df', 0.1),
+                                 max_features=config.get('max_features', 1200),
+                                 min_df=config.get('min_df', 1),
+                                 stop_words=config.get('stop_words',
+                                                       'english'),
+                                 preprocessor=preprocess,
+                                 use_idf=config.get('use_idf', True),
+                                 analyzer=config.get('analyzer', 'word'),
+                                 ngram_range=tuple(config.get('ngram_range',
+                                                              (2, 3))))
+
+    setup['X'] = vectorizer.fit_transform(df.text)
+    setup['K'] = config.get('K', range(2, 201, 1))
+    setup['K'] = range(*config.get('k_range', [2, 201, 1]))
+    setup['max_iterations'] = config.get('max_iterations', 100)
+    setup['run_count'] = config.get('run_count', 100)
+    setup['timestamp'] = \
+        datetime.fromtimestamp(time()).strftime("%Y_%m_%d_%H_%M_%S")
+
+    formatter = logging.Formatter('%(asctime)s:%(levelname)s: %(message)s')
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(logging.INFO)
+    stream_handler.setFormatter(formatter)
+    logFilePath = os.path.join(os.getcwd(),
+                               "log",
+                               "thesis_kmeans_" + setup['timestamp'] + ".log")
+    file_handler = logging.FileHandler(filename=logFilePath)
+    file_handler.setFormatter(formatter)
+    file_handler.setLevel(logging.ERROR)
+    logger.addHandler(file_handler)
+    logger.addHandler(stream_handler)
+
+    logger.info("Logging for experiment started at %s" % setup['timestamp'])
+
+    return setup
 
 
 # =============================================================================
@@ -240,32 +273,47 @@ def plot(_dir=None, df=None, run_timestamp=''):
 # =============================================================================
 
 
-def main():
+def main(config=None):
     """Description of main()"""
-    timestamp = datetime.fromtimestamp(time()).strftime("%Y_%m_%d_%H_%M_%S")
+    setup = build_setup()
+    t0 = time()
+    experiment(setup['X'],
+               setup['K'],
+               max_iterations=setup['max_iterations'],
+               run_count=setup['run_count'],
+               run_timestamp=setup['timestamp'])
 
-    formatter = logging.Formatter('%(asctime)s:%(levelname)s: %(message)s')
+    plot(*analysis(K=setup['K'], run_timestamp=setup['timestamp']))
+    logger.setLevel(logging.INFO)
+    logger.info("Single process completed in %fs" % (time() - t0))
 
-    logger.setLevel(logging.DEBUG)
 
-    stream_handler = logging.StreamHandler()
-    stream_handler.setLevel(logging.INFO)
-    stream_handler.setFormatter(formatter)
+def multiprocess_main(config=None):
+    setup = build_setup()
+    pool = mp.Pool(mp.cpu_count())
+    logger.setLevel(logging.ERROR)
+    t0 = time()
+    for k in setup['K']:
+        pool.apply_async(experiment,
+                         args=(setup['X'],
+                               [k],
+                               setup['max_iterations'],
+                               setup['run_count'],
+                               setup['timestamp']))
 
-    logFilePath = os.path.join(os.getcwd(),
-                               "log",
-                               "thesis_kmeans_" + timestamp + ".log")
-    file_handler = logging.FileHandler(filename=logFilePath)
-    file_handler.setFormatter(formatter)
-    file_handler.setLevel(logging.DEBUG)
-
-    logger.addHandler(file_handler)
-    logger.addHandler(stream_handler)
-
-    logger.info("Logging for experiment started at %s" % timestamp)
-
-    plot(*analysis(*experiment(run_timestamp=timestamp)))
+    pool.close()
+    pool.join()
+    logger.setLevel(logging.INFO)
+    plot(*analysis(K=setup['K'], run_timestamp=setup['timestamp']))
+    logger.info("Multiprocess completed in %fs" % (time() - t0))
 
 
 if __name__ == '__main__':
-    main()
+    config = None
+    if len(sys.argv) > 1:
+        try:
+            config = json.load(open(sys.argv[1]))
+        except Exception:
+            logger.error("Provided config file failed, trying default file")
+#    main(config)
+    multiprocess_main(config)
