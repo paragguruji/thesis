@@ -381,7 +381,7 @@ def build_setup(config=None):
         os.makedirs(_dir)
     json.dump(config,
               open(os.path.join(_dir, setup['timestamp'] + ".config"), "w"))
-    logFilePath = os.path.join(_dir, 'logs', setup['timestamp'] + ".log")
+    logFilePath = os.path.join(_dir, setup['timestamp'] + ".log")
 
     formatter = logging.Formatter('%(asctime)s:%(levelname)s: %(message)s')
     stream_handler = logging.StreamHandler()
