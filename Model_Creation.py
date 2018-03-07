@@ -72,7 +72,7 @@ model = Doc2Vec(min_count=1,
                 size=100,
                 sample=1e-4,
                 negative=5,
-                workers=multiprocessing.cpu_count)
+                workers=14)
 '''
 min_count: ignore all words with total frequency lower than this.
 You have to set this to 1, since the sentence labels only appear once.
