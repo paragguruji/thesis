@@ -27,7 +27,7 @@ class LabeledLineSentence(object):
         # flipped = {}
         # make sure that keys are unique
         self.sentences = []
-        for i in range(_list):
+        for i in range(len(_list)):
             self.sentences.append(LabeledSentence(
                         utils.to_unicode(_list[i]).split(),
                         ['news_article' + '_%s' % i]))
