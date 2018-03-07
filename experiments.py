@@ -226,8 +226,8 @@ def experiment(X, K, max_iterations, run_count, run_timestamp='', _dir=None):
         os.makedirs(_dir)
     km = MiniBatchKMeans(init='k-means++',
                          max_iter=max_iterations,
-                         batch_size=100,
-                         n_init=10,
+                         batch_size=1200,
+                         n_init=4,
                          max_no_improvement=10,
                          verbose=0)
     with warnings.catch_warnings():
