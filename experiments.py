@@ -139,8 +139,11 @@ def load_data(sources):
     """
 
     t0 = time()
-    _list = reduce(lambda x, y: x + y,
-                   map(load_source_dicts, sources))
+    _list = json.load(open('data/lowercased_author_present_dicts.json', 'r'))
+#            reduce(lambda x, y: x + y,
+#                   map(load_source_dicts, sources))
+    for i in range(len(_list)):
+        _list[i]['uid'] = i+1
     logger.info("data loaded in %06.3fs\n" % (time() - t0))
     return pd.DataFrame.from_records(_list)
 
@@ -320,7 +323,7 @@ def plot(df=None, run_timestamp='', run_count=0, _dir=None):
         df = pd.read_csv(os.path.join(_dir, 'results.csv'))
     p1 = df.plot(x=df.columns.values[0],
                  y=df.columns.values[1],
-                 yerr=df.columns.values[2],
+#                 yerr=df.columns.values[2],
                  title="Mean WC-SSD for %s Runs Vs. K" % run_count)
     p1.set_xticks(df[df.columns.values[0]], minor=True)
     p1.grid(which='both', linestyle='dotted', alpha=0.5)
