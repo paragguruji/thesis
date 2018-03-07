@@ -98,4 +98,4 @@ for epoch in range(50):
                 total_examples=model.corpus_count,
                 epochs=model.iter,)
 
-model.save('./JokeDataset.d2v')
+model.save('./NewsArticles.d2v')
