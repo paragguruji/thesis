@@ -45,7 +45,7 @@ from random import sample
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.cluster import MiniBatchKMeans
-
+from sklearn import metrics
 
 import matplotlib
 matplotlib.use('agg')
@@ -67,7 +67,7 @@ __version__ = '0.1'
 DATA_DIR = os.path.join(os.getcwd(), "data")
 logger = logging.getLogger(__name__)
 
-
+'''
 def validate(d):
     """Returns True if a data dict is valid for analysis.
     Validity is defined as the length of news text >= 280
@@ -146,18 +146,18 @@ def load_data(sources):
         _list[i]['uid'] = i+1
     logger.info("data loaded in %06.3fs\n" % (time() - t0))
     return pd.DataFrame.from_records(_list)
-
+'''
 
 def wc(D, M, C):
     """
 
 
 
-    :param D: 
+    :param D:
 
-    :param M: 
+    :param M:
 
-    :param C: 
+    :param C:
 
 
 
@@ -167,16 +167,17 @@ def wc(D, M, C):
                 for i in set(M)])
 
 
+'''
 def _kmeans(D, K, max_iterations):
     """
 
 
 
-    :param D: 
+    :param D:
 
-    :param K: 
+    :param K:
 
-    :param max_iterations: 
+    :param max_iterations:
 
 
 
@@ -194,48 +195,155 @@ def _kmeans(D, K, max_iterations):
                  for l in range(C.shape[0])])
         L_old = L.copy()
     return C, L
+'''
+
+def a_run(k, X, L, max_iterations, k_dir, run):
+    km = MiniBatchKMeans(init='k-means++', n_clusters=k, max_iter=max_iterations, batch_size=1200, n_init=4, max_no_improvement=10, verbose=0)
+    t0 = time()
+    km.fit(X)
+    wcssd = wc(X.toarray(), km.labels_, km.cluster_centers_)
+    purity = metrics.homogeneity_score(L, km.labels_)
+    nmi = metrics.v_measure_score(L, km.labels_)
+    t1 = time() - t0
+    run_result = {"K": k, "Run": run, "WCSSD": wcssd, "Purity": purity, "NMI": nmi, "Time": t1, "Kmeans_Labels": list(km.labels_), "Cluster_Centers": km.cluster_centers_.tolist()}
+    with open(os.path.join(k_dir, 'run' + str(run) + '.json'), "w") as runf:
+        json.dump(run_result, runf)
+    logger.INFO(("K: %03d  Run: %03d  WCSSD: %015.8f  Purity: %015.8f  NMI: %015.8f  Time: %06.3fs") % (k, run, wcssd, purity, nmi, t1))
+    return run_result
 
 
-def experiment(X, K, max_iterations, run_count, run_timestamp='', _dir=None):
+
+def experiment(X, K, L, max_iterations, run_count, run_timestamp='', _dir=None):
     """
 
+    :param X:
 
+    :param K:
 
-    :param X: 
+    :param L:
 
-    :param K: 
+    :param max_iterations:
 
-    :param max_iterations: 
-
-    :param run_count: 
+    :param run_count:
 
     :param run_timestamp:  (Default value = '')
 
     :param _dir:  (Default value = None)
 
 
-
     """
-
+    global_result = {}
     if not run_timestamp:
-        run_timestamp = \
-            datetime.fromtimestamp(time()).strftime("%Y_%m_%d_%H_%M_%S")
+        run_timestamp = datetime.fromtimestamp(time()).strftime("%Y_%m_%d_%H_%M_%S")
     if not _dir:
         _dir = os.path.join('results', run_timestamp)
     if not os.path.isdir(_dir):
         os.makedirs(_dir)
-    km = MiniBatchKMeans(init='k-means++',
-                         max_iter=max_iterations,
-                         batch_size=1200,
-                         n_init=4,
-                         max_no_improvement=10,
-                         verbose=0)
+
     with warnings.catch_warnings():
+        pool = mp.Pool(mp.cpu_count())
         warnings.simplefilter("ignore")
         for k in range(len(K)):
-            km.n_clusters = K[k]
-            wcssds = []
-            t00 = time()
+            k_dir = os.path.join(_dir, 'K' + str(K[k]))
+            if not os.path.isdir(k_dir):
+                os.makedirs(k_dir)
+            for run in range(run_count):
+                pool.apply_async(a_run, args=(K[k], X, L, max_iterations, k_dir, run))
+        pool.close()
+        pool.join()
+        for k in range(len(K)):
+            k_dir = os.path.join(_dir, 'K' + str(K[k]))
+            runs_data = [json.load(open(os.path.join(k_dir, 'run' + str(run) + '.json'))) for run in range(run_count)]
+            global_result[K[k]] = {
+                'K': K[k],
+                'runs': runs_data
+            }
+            wcssds = [run["WCSSD"] for run in runs_data]
+            mean_wcssd = np.mean(np.array(wcssds))
+            std_dev_wcssd = np.std(np.array(wcssds))
+            best_purity = max([run["Purity"] for run in runs_data])
+            best_nmi = max([run["NMI"] for run in runs_data])
+            global_result[K[k]] = {
+                "K": K[k],
+                "RunCount": run_count,
+                "WCSSD-Mean": mean_wcssd,
+                "WCSSD-Std-Dev": std_dev_wcssd,
+                "Purity-Best": best_purity,
+                "NMI-Best": best_nmi
+            }
+            logger.info(
+                ("K: %03d  Runs: %03d  WCSSD-Mean: %015.8f  WCSSD-Std-Dev: %015.8f  Purity-Best: %015.8f  NMI-Best: %015.8f") %
+                (K[k], run_count, mean_wcssd, std_dev_wcssd, best_purity, best_nmi))
+
+        with open(os.path.join(_dir, 'global_result' + '.json'), "w") as gresf:
+            json.dump(global_result, gresf)
+    return _dir
+
+
+def plot(_dir, run_count=30):
+    table = []
+    result_data = json.load(open(os.path.join(_dir, 'global_result' + '.json')))
+    for k in result_data:
+        table.append([
+            result_data[k]["K"],
+            result_data[k]["WCSSD-Mean"],
+            result_data[k]["WCSSD-Std-Dev"],
+            result_data[k]["Purity-Best"],
+            result_data[k]["NMI-Best"]
+        ])
+    df = pd.DataFrame(table, columns=["K", "WCSSD-Mean", "WCSSD-Std-Dev", "Purity", "NMI"])
+    df_sorted = df.sort_values(by='K', ascending=True)
+    df_sorted.reset_index(drop=True)
+
+    df_sorted.to_csv(os.path.join(_dir, 'plot_results.csv'), index=False)
+
+    p1 = df_sorted.plot(x=df_sorted.columns.values[0], y=df_sorted.columns.values[1], title="Mean WC-SSD for %s Runs Vs. K" % run_count)
+    p1.set_xticks(df_sorted[df_sorted.columns.values[0]], minor=True)
+    p1.grid(which='both', linestyle='dotted', alpha=0.5)
+    p1.get_figure().savefig(os.path.join(_dir, 'MeanWCSSDbyK.png'))
+
+    p2 = df_sorted.plot(x=df_sorted.columns.values[0], y=df_sorted.columns.values[3], title="Purity Vs. K")
+    p2.set_xticks(df_sorted[df_sorted.columns.values[0]], minor=True)
+    p2.grid(which='both', linestyle='dotted', alpha=0.5)
+    p2.get_figure().savefig(os.path.join(_dir, 'PuritybyK.png'))
+
+    p3 = df_sorted.plot(x=df_sorted.columns.values[0], y=df_sorted.columns.values[4], title="NMI Vs. K")
+    p3.set_xticks(df_sorted[df_sorted.columns.values[0]], minor=True)
+    p3.grid(which='both', linestyle='dotted', alpha=0.5)
+    p3.get_figure().savefig(os.path.join(_dir, 'NMIbyK.png'))
+
+    return df, run_count, _dir
+
+
+'''
+            for run in range(run_count):
+                t0 = time()
+                km.fit(X)
+                wcssd = wc(X.toarray(),
+                           km.labels_,
+                           km.cluster_centers_)
+                purity = metrics.homogeneity_score(L, km.labels_)
+                nmi = metrics.completeness_score(L, km.labels_)
+                t1 = time() - t0
+                run_result = {"K": K[k], "Run": run, "WCSSD": wcssd, "Purity": purity, "NMI": nmi, "Time": t1, "cluster_centers": km.cluster_centers_, "kmeans_labels": km.labels_}
+                with open(os.path.join(k_dir, 'run' + str(run) + '.json'), "w") as runf:
+                    json.dump(run_result, runf)
+                logger.debug(("K: %03d  Run: %03d  WCSSD: %015.8f  Purity: %015.8f  NMI: %015.8f  Time: %06.3fs") %
+                             (K[k], run, wcssd, purity, nmi, t1))
+                result['runs'].append(run_result)
+            t11 = time() - t00
+            wcssds = [run["WCSSD"] for run in result["runs"]]
+            mean_wcssd = np.mean(np.array(wcssds))
+            std_dev_wcssd = np.std(np.array(wcssds))
+            best_purity = max([run["Purity"] for run in result["runs"]])
+            best_nmi = max([run["NMI"] for run in result["runs"]])
+            with open(os.path.join(k_dir, 'summary_result' + '.json'), "w") as resf:
+                json.dump({"K": K[k], "Runs": run_count, "WCSSD-Mean": mean_wcssd, "WCSSD-Std-Dev": std_dev_wcssd, "Purity-Best": best_purity, "NMI-Best": best_nmi, "Time": t11}, resf)
+            logger.info(("K: %03d  Runs: %03d  WCSSD-Mean: %015.8f  WCSSD-Std-Dev: %015.8f  Purity-Best: %015.8f  NMI-Best: %015.8f  Time: %06.3fs") %
+                        (K[k], run_count, mean_wcssd, std_dev_wcssd, best_purity, best_nmi, t11))
+    return K, run_timestamp, _dir
+
+
             with open(os.path.join(_dir, 'K' + str(K[k]) + '.txt'), "w") as kf:
                 kf.write(str(K[k]) + "\n")
                 for run in range(run_count):
@@ -244,21 +352,14 @@ def experiment(X, K, max_iterations, run_count, run_timestamp='', _dir=None):
                     wcssd = wc(X.toarray(),
                                km.labels_,
                                km.cluster_centers_)
-                    wcssds.append(wcssd)
                     t1 = time()
-                    logger.debug(("K: %03d  Run: %03d  WCSSD: %015.8f  " +
-                                 "Time: %06.3fs") %
-                                 (K[k], run, wcssd, (t1 - t0)))
+                    wcssds.append(wcssd)
+                    logger.debug(("K: %03d  Run: %03d  WCSSD: %015.8f  Purity: %015.8f  NMI: %015.8f  Time: %06.3fs") %
+                                 (K[k], run, wcssd, purity, nmi, (t1 - t0)))
                     kf.write("%s " % wcssd)
-            t11 = time()
-            logger.info(("K: %03d  Runs: %03d  Mean-WCSSD: %015.8f  " +
-                         "Std. Dev.: %015.8f  Time: %06.3fs") %
-                        (K[k],
-                         run_count,
-                         np.mean(np.array(wcssds)),
-                         np.std(np.array(wcssds)),
-                         (t11 - t00)))
-    return K, run_timestamp, _dir
+
+
+
 
 
 def analysis(K, run_timestamp='', _dir=None):
@@ -266,7 +367,7 @@ def analysis(K, run_timestamp='', _dir=None):
 
 
 
-    :param K: 
+    :param K:
 
     :param run_timestamp:  (Default value = '')
 
@@ -300,7 +401,7 @@ def analysis(K, run_timestamp='', _dir=None):
     return df, run_timestamp, run_count, _dir
 
 
-def plot(df=None, run_timestamp='', run_count=0, _dir=None):
+def plot1(df=None, run_timestamp='', run_count=0, _dir=None):
     """
 
 
@@ -328,6 +429,7 @@ def plot(df=None, run_timestamp='', run_count=0, _dir=None):
     p1.set_xticks(df[df.columns.values[0]], minor=True)
     p1.grid(which='both', linestyle='dotted', alpha=0.5)
     p1.get_figure().savefig(os.path.join(_dir, 'Mean-WC-SSD.png'))
+'''
 
 
 def build_setup(config=None):
@@ -349,42 +451,45 @@ def build_setup(config=None):
             config = {}
             logger.error("config failed, using defaults", exc_info=True)
 
-    df = load_data(config.get('sources',
-                              ['cnn',
-                               'foxnews',
-                               'nytimes',
-                               'nypost',
-                               'bostonglobe',
-                               'chicagotribune',
-                               'latimes',
-                               'wallstreetjournal',
-                               'washingtonpost']))
+
+#    df = load_data(config.get('sources',
+#                              ['cnn',
+#                               'foxnews',
+#                               'nytimes',
+#                               'nypost',
+#                               'bostonglobe',
+#                               'chicagotribune',
+#                               'latimes',
+#                               'wallstreetjournal',
+#                               'washingtonpost']))
+
+
+    data = json.load(open('clean_data.json'))
 
     vectorizer = TfidfVectorizer(max_df=config.get('max_df', 0.1),
                                  max_features=config.get('max_features', 1200),
                                  min_df=config.get('min_df', 1),
                                  stop_words=config.get('stop_words',
                                                        'english'),
-                                 preprocessor=preprocess,
                                  use_idf=config.get('use_idf', True),
                                  analyzer=config.get('analyzer', 'word'),
                                  ngram_range=tuple(config.get('ngram_range',
                                                               (2, 3))))
 
-    setup['X'] = vectorizer.fit_transform(df.text)
-    setup['K'] = config.get('K', range(2, 201, 1))
-    setup['K'] = range(*config.get('k_range', [2, 201, 1]))
-    setup['max_iterations'] = config.get('max_iterations', 100)
-    setup['run_count'] = config.get('run_count', 100)
-    setup['timestamp'] = \
-        datetime.fromtimestamp(time()).strftime("%Y_%m_%d_%H_%M_%S")
+    setup['X'] = vectorizer.fit_transform([d['text'] for d in data])
+    setup['K'] = config.get('K', range(2, 701, 1))
+    setup['K'] = range(*config.get('k_range', [2, 701, 1]))
+    setup['L'] = [d['source'] for d in data]
+    setup['max_iterations'] = config.get('max_iterations', 50)
+    setup['run_count'] = config.get('run_count', 50)
+    setup['run_timestamp'] = datetime.fromtimestamp(time()).strftime("%Y_%m_%d_%H_%M_%S")
 
-    _dir = os.path.join(os.getcwd(), 'results', setup['timestamp'])
+    _dir = os.path.join(os.getcwd(), 'results', setup['run_timestamp'])
     if not os.path.isdir(_dir):
         os.makedirs(_dir)
     json.dump(config,
-              open(os.path.join(_dir, setup['timestamp'] + ".config"), "w"))
-    logFilePath = os.path.join(_dir, setup['timestamp'] + ".log")
+              open(os.path.join(_dir, setup['run_timestamp'] + ".config"), "w"))
+    logFilePath = os.path.join(_dir, setup['run_timestamp'] + ".log")
 
     formatter = logging.Formatter('%(asctime)s:%(levelname)s: %(message)s')
     stream_handler = logging.StreamHandler()
@@ -397,7 +502,7 @@ def build_setup(config=None):
     logger.addHandler(file_handler)
     logger.addHandler(stream_handler)
 
-    logger.info("Logging for experiment started at %s" % setup['timestamp'])
+    logger.info("Logging for experiment started at %s" % setup['run_timestamp'])
 
     return setup
 
@@ -414,21 +519,20 @@ def main(config=None):
 
     :param config:  (Default value = None)
 
-
+    params of experiment: X, K, L, max_iterations, run_count, run_timestamp='', _dir=None
 
     """
 
     setup = build_setup()
     t0 = time()
-    experiment(setup['X'],
-               setup['K'],
-               max_iterations=setup['max_iterations'],
-               run_count=setup['run_count'],
-               run_timestamp=setup['timestamp'])
-
-    plot(*analysis(K=setup['K'], run_timestamp=setup['timestamp']))
+    result_dir = experiment(**setup)
+#    plot(*analysis(K=setup['K'], run_timestamp=setup['run_timestamp']))
+    plot(result_dir, setup['run_count'])
+    X = setup.pop('X')
+    with open(os.path.join(result_dir, 'setup.json'), "w") as sf:
+        json.dump(setup, sf)
     logger.setLevel(logging.INFO)
-    logger.info("Single process completed in %fs" % (time() - t0))
+    logger.info("Experiments completed in %fs" % (time() - t0))
 
 
 def multiprocess_main(config=None):
@@ -452,12 +556,12 @@ def multiprocess_main(config=None):
                                [k],
                                setup['max_iterations'],
                                setup['run_count'],
-                               setup['timestamp']))
+                               setup['run_timestamp']))
 
     pool.close()
     pool.join()
     logger.setLevel(logging.INFO)
-    plot(*analysis(K=setup['K'], run_timestamp=setup['timestamp']))
+    plot(*analysis(K=setup['K'], run_timestamp=setup['run_timestamp']))
     logger.info("Multiprocess completed in %fs" % (time() - t0))
 
 
@@ -468,5 +572,5 @@ if __name__ == '__main__':
             config = json.load(open(sys.argv[1]))
         except Exception:
             logger.error("Provided config file failed, trying default file")
-#    main(config)
-    multiprocess_main(config)
+    main(config)
+#    multiprocess_main(config)
