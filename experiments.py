@@ -197,7 +197,7 @@ def _kmeans(D, K, max_iterations):
     return C, L
 '''
 
-def a_run(k, X, L, max_iterations, k_dir, run):
+def a_run(k, X, L, max_iterations, k_dir, c_dir, run):
     km = MiniBatchKMeans(init='k-means++', n_clusters=k, max_iter=max_iterations, batch_size=1200, n_init=4, max_no_improvement=10, verbose=0)
     t0 = time()
     km.fit(X)
@@ -205,12 +205,13 @@ def a_run(k, X, L, max_iterations, k_dir, run):
     purity = metrics.homogeneity_score(L, km.labels_)
     nmi = metrics.v_measure_score(L, km.labels_)
     t1 = time() - t0
-    run_result = {"K": k, "Run": run, "WCSSD": wcssd, "Purity": purity, "NMI": nmi, "Time": t1, "Kmeans_Labels": list(km.labels_), "Cluster_Centers": km.cluster_centers_.tolist()}
+    run_result = {"K": k, "Run": run, "WCSSD": wcssd, "Purity": purity, "NMI": nmi, "Time": t1, "Kmeans_Labels": km.labels_.tolist()}
     with open(os.path.join(k_dir, 'run' + str(run) + '.json'), "w") as runf:
         json.dump(run_result, runf)
-    logger.INFO(("K: %03d  Run: %03d  WCSSD: %015.8f  Purity: %015.8f  NMI: %015.8f  Time: %06.3fs") % (k, run, wcssd, purity, nmi, t1))
+    with open(os.path.join(c_dir, 'run' + str(run) + '.json'), "w") as ctrf:
+        json.dump({"K": k, "Run": run, "Cluster_Centers": km.cluster_centers_.tolist()}, ctrf)
+    logger.info(("K: %03d  Run: %03d  WCSSD: %015.8f  Purity: %015.8f  NMI: %015.8f  Time: %06.3fs") % (k, run, wcssd, purity, nmi, t1))
     return run_result
-
 
 
 def experiment(X, K, L, max_iterations, run_count, run_timestamp='', _dir=None):
@@ -237,8 +238,11 @@ def experiment(X, K, L, max_iterations, run_count, run_timestamp='', _dir=None):
         run_timestamp = datetime.fromtimestamp(time()).strftime("%Y_%m_%d_%H_%M_%S")
     if not _dir:
         _dir = os.path.join('results', run_timestamp)
+        _dirc = os.path.join('results', 'cluster_centers', run_timestamp)
     if not os.path.isdir(_dir):
         os.makedirs(_dir)
+    if not os.path.isdir(_dirc):
+        os.makedirs(_dirc)
 
     with warnings.catch_warnings():
         pool = mp.Pool(mp.cpu_count())
@@ -247,17 +251,16 @@ def experiment(X, K, L, max_iterations, run_count, run_timestamp='', _dir=None):
             k_dir = os.path.join(_dir, 'K' + str(K[k]))
             if not os.path.isdir(k_dir):
                 os.makedirs(k_dir)
+            c_dir = os.path.join(_dirc, 'K' + str(K[k]))
+            if not os.path.isdir(c_dir):
+                os.makedirs(c_dir)
             for run in range(run_count):
-                pool.apply_async(a_run, args=(K[k], X, L, max_iterations, k_dir, run))
+                pool.apply_async(a_run, args=(K[k], X, L, max_iterations, k_dir, c_dir, run))
         pool.close()
         pool.join()
         for k in range(len(K)):
             k_dir = os.path.join(_dir, 'K' + str(K[k]))
             runs_data = [json.load(open(os.path.join(k_dir, 'run' + str(run) + '.json'))) for run in range(run_count)]
-            global_result[K[k]] = {
-                'K': K[k],
-                'runs': runs_data
-            }
             wcssds = [run["WCSSD"] for run in runs_data]
             mean_wcssd = np.mean(np.array(wcssds))
             std_dev_wcssd = np.std(np.array(wcssds))
@@ -498,7 +501,7 @@ def build_setup(config=None):
 
     file_handler = logging.FileHandler(filename=logFilePath)
     file_handler.setFormatter(formatter)
-    file_handler.setLevel(logging.ERROR)
+    file_handler.setLevel(logging.INFO)
     logger.addHandler(file_handler)
     logger.addHandler(stream_handler)
 
