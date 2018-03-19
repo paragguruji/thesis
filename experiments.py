@@ -189,7 +189,7 @@ def update_worker(k, run, sources):
     arun = json.load(open(path))
     arun['Purity'] = purity(sources, arun['Kmeans_Labels'])
     with open(path, 'w') as fp:
-        json.dump(arun)
+        json.dump(arun, fp)
 
 
 def update_purity():
