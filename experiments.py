@@ -167,6 +167,50 @@ def wc(D, M, C):
                 for i in set(M)])
 
 
+def purity(sources, clusters):
+
+    unique_clusters = list(set(clusters))
+    unique_sources = list(set(sources))
+
+    mapping = zip(clusters, sources)
+
+    tops = []
+    for i in range(len(unique_clusters)):
+        row = []
+        for j in range(len(unique_sources)):
+            row.append(len([m for m in mapping if m[0] == unique_clusters[i] and m[1] == unique_sources[j]]))
+        tops.append(max(row))
+    purity_value = float(sum(tops)) / float(len(clusters))
+    return purity_value
+
+
+def update_worker(k, run):
+    path = os.path.join('results', '2018_03_18_18_06_59', 'K' + str(k), 'run' + str(run) + '.json')
+    arun = json.load(open(path))
+    arun['Purity'] = purity(sources, arun['Kmeans_Labels'])
+    with open(path, 'w') as fp:
+        json.dump(arun)
+
+
+def update_purity():
+    data_clean = json.load(open('clean_data.json'))
+    sources = [d['source'] for d in data_clean]
+    pool = mp.Pool(mp.cpu_count())
+    for k in range(2, 660):
+        for run in range(15):
+            pool.apply_async(update_worker, args=(k, run))
+    pool.close()
+    pool.join()
+    global_result_path = os.path.join('results', '2018_03_18_18_06_59', 'global_result' + '.json')
+    global_result = json.load(open(global_result_path))
+    for k in range(2, 660):
+        k_dir = os.path.join('results', '2018_03_18_18_06_59', 'K' + str(k))
+        runs_data = [json.load(open(os.path.join(k_dir, 'run' + str(run) + '.json'))) for run in range(15)]
+        global_result[k]["Purity-Best"] = max([run["Purity"] for run in runs_data])
+    with open(global_result_path, "w") as gresf:
+        json.dump(global_result, gresf)
+
+
 '''
 def _kmeans(D, K, max_iterations):
     """
@@ -298,22 +342,22 @@ def plot(_dir, run_count=30):
     df_sorted = df.sort_values(by='K', ascending=True)
     df_sorted.reset_index(drop=True)
 
-    df_sorted.to_csv(os.path.join(_dir, 'plot_results.csv'), index=False)
+    df_sorted.to_csv(os.path.join(_dir, 'plot_results_new.csv'), index=False)
 
     p1 = df_sorted.plot(x=df_sorted.columns.values[0], y=df_sorted.columns.values[1], title="Mean WC-SSD for %s Runs Vs. K" % run_count)
     p1.set_xticks(df_sorted[df_sorted.columns.values[0]], minor=True)
     p1.grid(which='both', linestyle='dotted', alpha=0.5)
-    p1.get_figure().savefig(os.path.join(_dir, 'MeanWCSSDbyK.png'))
+    p1.get_figure().savefig(os.path.join(_dir, 'MeanWCSSDbyK_new.png'))
 
     p2 = df_sorted.plot(x=df_sorted.columns.values[0], y=df_sorted.columns.values[3], title="Purity Vs. K")
     p2.set_xticks(df_sorted[df_sorted.columns.values[0]], minor=True)
     p2.grid(which='both', linestyle='dotted', alpha=0.5)
-    p2.get_figure().savefig(os.path.join(_dir, 'PuritybyK.png'))
+    p2.get_figure().savefig(os.path.join(_dir, 'PuritybyK_new.png'))
 
     p3 = df_sorted.plot(x=df_sorted.columns.values[0], y=df_sorted.columns.values[4], title="NMI Vs. K")
     p3.set_xticks(df_sorted[df_sorted.columns.values[0]], minor=True)
     p3.grid(which='both', linestyle='dotted', alpha=0.5)
-    p3.get_figure().savefig(os.path.join(_dir, 'NMIbyK.png'))
+    p3.get_figure().savefig(os.path.join(_dir, 'NMIbyK_new.png'))
 
     return df, run_count, _dir
 
@@ -575,5 +619,7 @@ if __name__ == '__main__':
             config = json.load(open(sys.argv[1]))
         except Exception:
             logger.error("Provided config file failed, trying default file")
-    main(config)
+#    main(config)
 #    multiprocess_main(config)
+    update_purity()
+    plot(_dir=os.path.join('results', '2018_03_18_18_06_59'), run_count=15)
