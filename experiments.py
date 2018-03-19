@@ -184,7 +184,7 @@ def purity(sources, clusters):
     return purity_value
 
 
-def update_worker(k, run):
+def update_worker(k, run, sources):
     path = os.path.join('results', '2018_03_18_18_06_59', 'K' + str(k), 'run' + str(run) + '.json')
     arun = json.load(open(path))
     arun['Purity'] = purity(sources, arun['Kmeans_Labels'])
@@ -198,7 +198,7 @@ def update_purity():
     pool = mp.Pool(mp.cpu_count())
     for k in range(2, 660):
         for run in range(15):
-            pool.apply_async(update_worker, args=(k, run))
+            pool.apply_async(update_worker, args=(k, run, sources))
     pool.close()
     pool.join()
     global_result_path = os.path.join('results', '2018_03_18_18_06_59', 'global_result' + '.json')
