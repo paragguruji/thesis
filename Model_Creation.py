@@ -59,7 +59,8 @@ class LabeledLineSentence(object):
         return self.sentences
 
 
-_list = json.load(open('data/lowercased_author_present_dicts.json', 'r'))
+#_list = json.load(open('data/lowercased_author_present_dicts.json', 'r'))
+_list = json.load(open('clean_data.json'))
 for i in range(len(_list)):
     _list[i]['uid'] = i+1
 
@@ -98,4 +99,4 @@ for epoch in range(50):
                 total_examples=model.corpus_count,
                 epochs=model.iter,)
 
-model.save('./NewsArticles.d2v')
+model.save('./news_articles.d2v')
