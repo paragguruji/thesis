@@ -206,7 +206,7 @@ def update_purity():
     for k in range(2, 660):
         k_dir = os.path.join('results', '2018_03_18_18_06_59', 'K' + str(k))
         runs_data = [json.load(open(os.path.join(k_dir, 'run' + str(run) + '.json'))) for run in range(15)]
-        global_result[k]["Purity-Best"] = max([run["Purity"] for run in runs_data])
+        global_result[str(k)]["Purity-Best"] = max([run["Purity"] for run in runs_data])
     with open(global_result_path, "w") as gresf:
         json.dump(global_result, gresf)
 
